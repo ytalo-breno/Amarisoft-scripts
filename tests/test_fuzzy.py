@@ -2,7 +2,7 @@ import math
 import unittest
 from unittest.mock import Mock
 
-from fuzzy import APIError, FuzzyController, infer_delta
+from fuzzy_bler import APIError, FuzzyController, infer_delta
 
 
 class FuzzyTests(unittest.TestCase):

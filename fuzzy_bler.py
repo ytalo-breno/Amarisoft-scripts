@@ -105,12 +105,15 @@ def get_max_mcs_for_cqi(cqi):
 bler = ctrl.Antecedent(np.linspace(0, 1, 101), 'bler')
 cqi = ctrl.Antecedent(np.arange(0, 16), 'cqi')
 mcs_delta = ctrl.Consequent(np.linspace(-4, 2, 121), 'mcs_delta')
+
 bler['baixo'] = fuzz.trapmf(bler.universe, [0, 0, 0.03, 0.10])
 bler['medio'] = fuzz.trimf(bler.universe, [0.03, 0.10, 0.30])
 bler['alto'] = fuzz.trapmf(bler.universe, [0.10, 0.30, 1, 1])
+
 cqi['ruim'] = fuzz.trapmf(cqi.universe, [0, 0, 2, 6])
 cqi['razoavel'] = fuzz.trimf(cqi.universe, [4, 8, 12])
 cqi['bom'] = fuzz.trapmf(cqi.universe, [10, 13, 15, 15])
+
 mcs_delta['reduz_muito'] = fuzz.trimf(mcs_delta.universe, [-4, -4, -2])
 mcs_delta['reduz_pouco'] = fuzz.trimf(mcs_delta.universe, [-3, -1, 0])
 mcs_delta['mantem'] = fuzz.trimf(mcs_delta.universe, [-1, 0, 1])
