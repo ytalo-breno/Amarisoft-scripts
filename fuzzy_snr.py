@@ -17,7 +17,7 @@ import skfuzzy as fuzz
 from skfuzzy import control as ctrl
 import websocket
 
-from fuzzy import APIError, RemoteAPI, get_max_mcs_for_cqi, number
+from fuzzy_bler import APIError, RemoteAPI, get_max_mcs_for_cqi, number
 
 WS_URL = "ws://172.16.2.226:9001"
 SNR_MIN = -20
