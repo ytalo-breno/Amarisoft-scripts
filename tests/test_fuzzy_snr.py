@@ -2,7 +2,7 @@ import math
 import unittest
 from unittest.mock import Mock
 
-from fuzzy_snr import FuzzyController, infer_delta
+from fuzzy_snr import FuzzyController, get_max_mcs_for_snr, infer_delta
 
 
 class FuzzySnrTests(unittest.TestCase):
@@ -30,6 +30,21 @@ class FuzzySnrTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 infer_delta(snr, cqi)
 
+    def test_oai_snr_table_maps_thresholds_to_mcs(self):
+        self.assertEqual(get_max_mcs_for_snr(-1.0), 0)
+        self.assertEqual(get_max_mcs_for_snr(-0.4), 1)
+        self.assertEqual(get_max_mcs_for_snr(24.5), 28)
+        self.assertEqual(get_max_mcs_for_snr(24.4), 27)
+
+    def test_oai_snr_table_applies_mimo_offset(self):
+        self.assertEqual(get_max_mcs_for_snr(2.9, layers=2), 0)
+        self.assertEqual(get_max_mcs_for_snr(3.6, layers=2), 1)
+        self.assertEqual(get_max_mcs_for_snr(31.5, layers=4), 28)
+
+    def test_oai_snr_table_rejects_invalid_layers(self):
+        with self.assertRaises(ValueError):
+            get_max_mcs_for_snr(10, layers=3)
+
     def test_missing_metric_blocks_entire_cell(self):
         missing = self.sample()
         del missing["snr"]
@@ -38,7 +53,7 @@ class FuzzySnrTests(unittest.TestCase):
 
     def test_worst_snr_controls_cell(self):
         self.poll(self.sample(snr=10), self.sample(snr=-5))
-        self.api.request.assert_called_with("config_set", cells={"1": {"pdsch_mcs": 7}})
+        self.api.request.assert_called_with("config_set", cells={"1": {"pdsch_mcs": 0}})
         self.assertEqual(self.api.request.call_count, 2)
 
     def test_recovery_requires_three_high_snr_samples(self):

@@ -2,7 +2,7 @@ import math
 import unittest
 from unittest.mock import Mock
 
-from fuzzy_bler import APIError, FuzzyController, infer_delta
+from fuzzy_bler import APIError, FuzzyController, get_max_mcs_for_cqi, infer_delta
 
 
 class FuzzyTests(unittest.TestCase):
@@ -30,6 +30,10 @@ class FuzzyTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 infer_delta(bler, cqi)
 
+    def test_cqi_table_38_214_maps_all_indexes(self):
+        expected = [0, 0, 1, 3, 5, 7, 9, 11, 13, 15, 17, 19, 21, 23, 25, 27]
+        self.assertEqual([get_max_mcs_for_cqi(cqi) for cqi in range(16)], expected)
+
     def test_missing_metric_blocks_entire_cell(self):
         missing = self.sample()
         del missing['dl_bler']
@@ -38,7 +42,7 @@ class FuzzyTests(unittest.TestCase):
 
     def test_one_integer_command_with_worst_cqi(self):
         self.poll(self.sample(dl_mcs=10.7), self.sample(cqi=3))
-        self.api.request.assert_called_with('config_set', cells={'1': {'pdsch_mcs': 2}})
+        self.api.request.assert_called_with('config_set', cells={'1': {'pdsch_mcs': 3}})
         self.assertEqual(self.api.request.call_count, 2)
 
     def test_zero_mcs_never_increases_at_high_bler(self):
