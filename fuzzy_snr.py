@@ -26,24 +26,19 @@ TARGET_SNR = 5
 RECOVERY_SNR = 15
 RECOVERY_SAMPLES = 3
 
-# OAI gNB_scheduler_primitives.c: SINR thresholds multiplied by 10.
-SINR_X10_MCS_THRESHOLDS = (
-    -10, -4, 6, 16, 24, 34, 42, 50, 56, 62,
-    86, 92, 98, 104, 112, 118, 124, 140, 146, 154,
-    162, 170, 178, 186, 194, 202, 212, 220, 245,
+# OAI gNB_scheduler_primitives.c: SINR thresholds in dB.
+SINR_MCS_THRESHOLDS = (
+    -1.0, -0.4, 0.6, 1.6, 2.4, 3.4, 4.2, 5.0, 5.6, 6.2,
+    8.6, 9.2, 9.8, 10.4, 11.2, 11.8, 12.4, 14.0, 14.6, 15.4,
+    16.2, 17.0, 17.8, 18.6, 19.4, 20.2, 21.2, 22.0, 24.5,
 )
 
 snr = ctrl.Antecedent(np.linspace(SNR_MIN, SNR_MAX, 121), "snr")
-cqi = ctrl.Antecedent(np.arange(0, 16), "cqi")
 mcs_delta = ctrl.Consequent(np.linspace(-4, 2, 121), "mcs_delta")
 
 snr["baixo"] = fuzz.trapmf(snr.universe, [SNR_MIN, SNR_MIN, 0, 10])
 snr["medio"] = fuzz.trimf(snr.universe, [0, 10, 20])
 snr["alto"] = fuzz.trapmf(snr.universe, [10, 20, SNR_MAX, SNR_MAX])
-
-cqi["ruim"] = fuzz.trapmf(cqi.universe, [0, 0, 2, 6])
-cqi["razoavel"] = fuzz.trimf(cqi.universe, [4, 8, 12])
-cqi["bom"] = fuzz.trapmf(cqi.universe, [10, 13, 15, 15])
 
 mcs_delta["reduz_muito"] = fuzz.trimf(mcs_delta.universe, [-4, -4, -2])
 mcs_delta["reduz_pouco"] = fuzz.trimf(mcs_delta.universe, [-3, -1, 0])
@@ -52,21 +47,16 @@ mcs_delta["aumenta"] = fuzz.trimf(mcs_delta.universe, [0, 2, 2])
 
 amc_ctrl = ctrl.ControlSystem([
     ctrl.Rule(snr["baixo"], mcs_delta["reduz_muito"]),
-    ctrl.Rule(snr["medio"] & cqi["ruim"], mcs_delta["reduz_muito"]),
-    ctrl.Rule(snr["medio"] & cqi["razoavel"], mcs_delta["reduz_pouco"]),
-    ctrl.Rule(snr["medio"] & cqi["bom"], mcs_delta["reduz_pouco"]),
-    ctrl.Rule(snr["alto"] & cqi["ruim"], mcs_delta["mantem"]),
-    ctrl.Rule(snr["alto"] & (cqi["razoavel"] | cqi["bom"]), mcs_delta["aumenta"]),
+    ctrl.Rule(snr["medio"], mcs_delta["reduz_pouco"]),
+    ctrl.Rule(snr["alto"], mcs_delta["aumenta"]),
 ])
 
 
-def infer_delta(current_snr, current_cqi):
-    """Infere a variacao de MCS a partir de SNR e CQI validados."""
+def infer_delta(current_snr):
+    """Infere a variacao de MCS usando somente o SNR validado."""
     current_snr = number(current_snr, SNR_MIN, SNR_MAX)
-    current_cqi = number(current_cqi, 0, 15)
     sim = ctrl.ControlSystemSimulation(amc_ctrl, clip_to_bounds=False)
     sim.input["snr"] = current_snr
-    sim.input["cqi"] = current_cqi
     sim.compute()
     output = sim.output.get("mcs_delta")
     if output is None or not math.isfinite(output):
@@ -79,10 +69,9 @@ def get_max_mcs_for_snr(current_snr, layers=1):
     current_snr = number(current_snr, SNR_MIN, SNR_MAX)
     if isinstance(layers, bool) or layers not in (1, 2, 4):
         raise ValueError("numero de camadas invalido")
-    mimo_offset_x10 = {1: 0, 2: 40, 4: 70}[layers]
-    snr_x10 = current_snr * 10
-    for mcs in range(len(SINR_X10_MCS_THRESHOLDS) - 1, -1, -1):
-        if snr_x10 >= SINR_X10_MCS_THRESHOLDS[mcs] + mimo_offset_x10:
+    mimo_offset = {1: 0.0, 2: 4.0, 4: 7.0}[layers]
+    for mcs in range(len(SINR_MCS_THRESHOLDS) - 1, -1, -1):
+        if current_snr >= SINR_MCS_THRESHOLDS[mcs] + mimo_offset:
             return mcs
     return 0
 
@@ -115,14 +104,13 @@ class FuzzyController:
             try:
                 measured_snr = min(number(s.get(self.snr_field), SNR_MIN, SNR_MAX)
                                    for s in samples)
-                measured_cqi = min(number(s.get("cqi"), 0, 15) for s in samples)
                 current_mcs = math.floor(min(number(s.get("dl_mcs"), 0, 28)
                                              for s in samples))
                 cap = min(self.max_mcs, get_max_mcs_for_snr(measured_snr))
-                delta = infer_delta(measured_snr, measured_cqi)
+                delta = infer_delta(measured_snr)
             except ValueError as exc:
                 self.stable.pop(cell_id, None)
-                logging.warning("Celula %s: sem ajuste (%s); confira %s, CQI e MCS.",
+                logging.warning("Celula %s: sem ajuste (%s); confira %s e MCS.",
                                 cell_id, exc, self.snr_field)
                 continue
             self.stable[cell_id] = (self.stable.get(cell_id, 0) + 1
@@ -136,8 +124,8 @@ class FuzzyController:
                 continue
             self.api.request("config_set", cells={str(cell_id): {"pdsch_mcs": proposed}})
             self.stable[cell_id] = 0
-            logging.info("Celula %s: SNR %.2f dB, CQI %.2f, delta %s, MCS %s -> %s",
-                         cell_id, measured_snr, measured_cqi, delta, current_mcs, proposed)
+            logging.info("Celula %s: SNR %.2f dB, delta %s, MCS %s -> %s",
+                         cell_id, measured_snr, delta, current_mcs, proposed)
 
 
 def run_fuzzy_xapp(url=WS_URL, snr_field="snr", max_mcs=28):
