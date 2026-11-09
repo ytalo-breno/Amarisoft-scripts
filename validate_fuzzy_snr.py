@@ -2,6 +2,7 @@
 import argparse
 import csv
 import math
+import os
 import sys
 
 from fuzzy_snr import get_max_mcs_for_snr, infer_delta
@@ -71,35 +72,48 @@ def summarize(rows, skipped=0):
     }
 
 
+def validate_file(path):
+    """Valida uma tabela e retorna somente suas linhas e seu resumo."""
+    with open(path, newline="", encoding="utf-8") as stream:
+        rows, skipped = validate_rows(csv.DictReader(stream), path)
+    return rows, summarize(rows, skipped)
+
+
 def validate_files(paths):
-    all_rows = []
-    skipped = 0
-    for path in paths:
-        with open(path, newline="", encoding="utf-8") as stream:
-            rows, file_skipped = validate_rows(csv.DictReader(stream), path)
-        all_rows.extend(rows)
-        skipped += file_skipped
-    return all_rows, summarize(all_rows, skipped)
+    """Retorna a validação separada por caminho de entrada."""
+    return {path: validate_file(path) for path in paths}
+
+
+def write_validation(path, rows):
+    with open(path, "w", newline="", encoding="utf-8") as stream:
+        writer = csv.DictWriter(stream, fieldnames=OUTPUT_FIELDS)
+        writer.writeheader()
+        writer.writerows(rows)
 
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("input", nargs="+", help="CSV(s) produzido(s) pelo coletor")
-    parser.add_argument("--output", help="CSV detalhado de validacao")
+    parser.add_argument("--output-dir", default="validation_snr",
+                        help="diretorio dos CSVs de validacao, um por entrada")
     args = parser.parse_args(argv)
 
-    rows, summary = validate_files(args.input)
-    if args.output:
-        with open(args.output, "w", newline="", encoding="utf-8") as stream:
-            writer = csv.DictWriter(stream, fieldnames=OUTPUT_FIELDS)
-            writer.writeheader()
-            writer.writerows(rows)
-    print(f"Linhas validas: {summary['validated']}")
-    print(f"Linhas ignoradas: {summary['skipped']}")
-    if rows:
-        print(f"MAE entre MCS proposto e observado: {summary['mae_mcs']:.3f}")
-        print(f"Observado dentro do limite SINR: {summary['within_sinr_limit_pct']:.1f}%")
-    return 0 if rows else 1
+    results = validate_files(args.input)
+    os.makedirs(args.output_dir, exist_ok=True)
+    has_valid_rows = False
+    for path, (rows, summary) in results.items():
+        output_name = f"{os.path.splitext(os.path.basename(path))[0]}_validation.csv"
+        output_path = os.path.join(args.output_dir, output_name)
+        write_validation(output_path, rows)
+        print(f"\nTabela: {path}")
+        print(f"Relatorio: {output_path}")
+        print(f"Linhas validas: {summary['validated']}")
+        print(f"Linhas ignoradas: {summary['skipped']}")
+        if rows:
+            has_valid_rows = True
+            print(f"MAE entre MCS proposto e observado: {summary['mae_mcs']:.3f}")
+            print(f"Observado dentro do limite SINR: {summary['within_sinr_limit_pct']:.1f}%")
+    return 0 if has_valid_rows else 1
 
 
 if __name__ == "__main__":
