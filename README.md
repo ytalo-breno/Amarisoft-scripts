@@ -1,14 +1,15 @@
 # Amarisoft Scripts
 
-Scripts Python para experimentos de adaptação de modulação e codificação (AMC) em redes Amarisoft, usando lógica fuzzy e a API remota WebSocket do eNB/gNB. O projeto permite ajustar o MCS de downlink a partir de BLER/CQI ou SNR, coletar telemetria em CSV e gerar gráficos para comparar experimentos.
+Scripts Python para experimentos de adaptação de modulação e codificação (AMC) em redes Amarisoft, usando lógica fuzzy e a API remota WebSocket do eNB/gNB. O projeto permite ajustar MCS de downlink por BLER/CQI e MCS de uplink por SINR, coletar telemetria em CSV e gerar gráficos para comparar experimentos.
 
 ## Estrutura
 
 | Arquivo | Função |
 | --- | --- |
 | `fuzzy_bler.py` | Controlador fuzzy por BLER e CQI; também implementa o cliente `RemoteAPI` compartilhado. |
-| `fuzzy_snr.py` | Controlador fuzzy por SNR em dB, com limite de MCS baseado em uma tabela de limiares SINR. |
+| `fuzzy_snr.py` | Controlador fuzzy de uplink por SINR em dB, com limite de MCS baseado em uma tabela de limiares. |
 | `metrics_collector.py` | Coleta passiva de métricas, com uma linha por UE/célula. |
+| `validate_fuzzy_snr.py` | Reproduz o fuzzy por SNR offline a partir dos CSVs coletados. |
 | `plot_metrics.py` | Gera gráficos PNG a partir de um ou mais CSVs do coletor. |
 | `TestScript.py` | Envia uma mensagem JSON à API WebSocket e imprime a resposta. |
 | `fuzzy_old.py` | Implementação antiga, mantida como referência. |
@@ -38,15 +39,15 @@ Os scripts de controle e coleta usam por padrão `ws://172.16.2.226:9001`. Subst
 python fuzzy_snr.py --url ws://172.16.2.226:9001 --snr-field pusch_snr --max-mcs 28
 ```
 
-O controlador consulta `ue_get` com estatísticas e espera 0,5 segundo entre ciclos. Para cada célula, utiliza o menor SNR e o menor `dl_mcs` reportados entre seus UEs. O campo selecionado deve existir dentro das métricas de cada célula e conter um valor em dB no intervalo de -20 a 40.
+O controlador consulta `ue_get` com estatísticas e espera 0,5 segundo entre ciclos. Para cada célula, utiliza o menor `pusch_snr` e o menor `ul_mcs` reportados entre seus UEs. O campo selecionado deve existir dentro das métricas de cada célula e conter um valor em dB no intervalo de -20 a 40.
 
 - SNR baixo reduz o MCS; SNR alto pode aumentá-lo.
 - Aumentos exigem três amostras consecutivas com SNR acima de 15 dB.
 - Abaixo de 5 dB, o ajuste força uma redução de pelo menos um índice, respeitando o limite inferior.
-- O MCS fica entre 0 e `--max-mcs` e também respeita o teto da tabela de limiares presente no código.
+- O MCS de uplink fica entre 0 e `--max-mcs` e também respeita o teto da tabela de limiares presente no código.
 - Métricas ausentes ou inválidas impedem o ajuste da célula naquele ciclo.
 
-O padrão da linha de comando é `pusch_snr`; ao instanciar `FuzzyController` ou chamar `run_fuzzy_xapp` diretamente, o padrão é `snr`. Confirme o significado e a unidade do campo disponível na sua instalação: `pusch_snr` é uma medida de uplink usada aqui para orientar o MCS de downlink. Os limiares são experimentais e precisam de calibração. O laço de controle usa o teto calculado para uma camada.
+O padrão da linha de comando e da classe `FuzzyController` é `pusch_snr`. Confirme o significado e a unidade do campo disponível na sua instalação: `pusch_snr` é uma medida de uplink usada aqui para orientar o MCS de uplink. Os limiares são experimentais e precisam de calibração. O laço de controle usa o teto calculado para uma camada.
 
 ## Controle fuzzy por BLER e CQI
 
@@ -74,12 +75,12 @@ BLER acima de 10% força uma redução de pelo menos um índice, respeitando o l
 
 ## Escopo do controle e encerramento
 
-Os controladores enviam `config_set` com `cells.<cell_id>.pdsch_mcs`. A alteração ocorre por célula e afeta todos os seus UEs. Execute um controlador por vez para evitar comandos concorrentes sobre a mesma célula.
+O controlador por BLER envia `config_set` com `cells.<cell_id>.pdsch_mcs`; o controlador por SINR envia `cells.<cell_id>.pusch_mcs`. A alteração ocorre por célula e afeta todos os seus UEs. Execute um controlador por vez para evitar comandos concorrentes sobre a mesma célula.
 
-Use `Ctrl+C` para encerrar. O MCS forçado permanece no eNB/gNB após o encerramento. Para devolver uma célula ao controle nativo, envie `pdsch_mcs=-1`, substituindo o endereço e o ID da célula:
+Use `Ctrl+C` para encerrar. O MCS forçado permanece no eNB/gNB após o encerramento. Para devolver uma célula ao controle nativo do uplink, envie `pusch_mcs=-1`, substituindo o endereço e o ID da célula:
 
 ```sh
-python TestScript.py 172.16.2.226:9001 '{"message":"config_set","cells":{"1":{"pdsch_mcs":-1}}}'
+python TestScript.py 172.16.2.226:9001 '{"message":"config_set","cells":{"1":{"pusch_mcs":-1}}}'
 ```
 
 ## Coleta de métricas
@@ -115,6 +116,38 @@ Para selecionar métricas:
 ```sh
 python plot_metrics.py native.csv fuzzy_snr.csv --output-dir graphs --metrics cqi pusch_snr
 ```
+
+## Validação offline do fuzzy por SNR
+
+Use os CSVs coletados para reproduzir a decisão do fuzzy sem enviar comandos ao
+Amarisoft. O validador prioriza `pusch_snr` e usa `snr` como fallback. Para cada
+linha válida, calcula o delta fuzzy, o limite máximo de MCS da tabela SINR e o
+MCS de uplink proposto a partir do `ul_mcs` observado na coleta:
+
+```sh
+python validate_fuzzy_snr.py amarisoft_metrics.csv amarisoft_metrics1.csv \
+	amarisoft_metrics2.csv --output fuzzy_snr_validation.csv
+```
+
+O resumo mostra o erro médio absoluto entre o MCS de uplink proposto e o observado e a
+porcentagem de observações que respeitam o limite da tabela SINR. Essa é uma
+validação offline das regras e dos valores coletados; para medir o efeito
+causal do controlador, compare uma coleta `native` com outra feita enquanto o
+`fuzzy_snr` estiver ativo, sob condições equivalentes.
+
+## Validação offline do fuzzy por BLER
+
+Para validar o controlador que usa BLER e CQI, execute:
+
+```sh
+python validate_fuzzy_bler.py amarisoft_metrics.csv amarisoft_metrics1.csv \
+	amarisoft_metrics2.csv --output fuzzy_bler_validation.csv
+```
+
+O validador usa `dl_bler` quando disponível. Quando esse campo está vazio,
+calcula o BLER pela variação de `dl_err/dl_tx`, como o controlador. O `cqi_mcs_limit`
+é o MCS máximo permitido pela tabela `CQI_TO_MCS`, e a decisão reproduzida é
+comparada com o `dl_mcs` observado.
 
 ## Consulta manual à API
 

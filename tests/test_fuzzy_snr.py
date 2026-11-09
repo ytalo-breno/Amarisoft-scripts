@@ -15,7 +15,7 @@ class FuzzySnrTests(unittest.TestCase):
         self.controller.poll()
 
     def sample(self, **overrides):
-        return dict(dict(cell_id=1, dl_mcs=10, snr=0), **overrides)
+        return dict(dict(cell_id=1, ul_mcs=10, pusch_snr=0), **overrides)
 
     def test_rule_direction_and_coverage(self):
         for snr in [-20, 0, 5, 10, 15, 20, 30, 40]:
@@ -46,7 +46,7 @@ class FuzzySnrTests(unittest.TestCase):
 
     def test_missing_metric_blocks_entire_cell(self):
         missing = self.sample()
-        del missing["snr"]
+        del missing["pusch_snr"]
         self.poll(self.sample(), missing)
         self.api.request.assert_called_once_with("ue_get", stats=True)
 
@@ -55,16 +55,16 @@ class FuzzySnrTests(unittest.TestCase):
         self.assertEqual(self.api.request.call_count, 2)
 
     def test_worst_snr_controls_cell(self):
-        self.poll(self.sample(snr=10), self.sample(snr=-5))
-        self.api.request.assert_called_with("config_set", cells={"1": {"pdsch_mcs": 0}})
+        self.poll(self.sample(pusch_snr=10), self.sample(pusch_snr=-5))
+        self.api.request.assert_called_with("config_set", cells={"1": {"pusch_mcs": 0}})
         self.assertEqual(self.api.request.call_count, 2)
 
     def test_recovery_requires_three_high_snr_samples(self):
         for _ in range(2):
-            self.poll(self.sample(snr=30))
+            self.poll(self.sample(pusch_snr=30))
         self.assertEqual(self.api.request.call_count, 2)
-        self.poll(self.sample(snr=30))
-        self.api.request.assert_called_with("config_set", cells={"1": {"pdsch_mcs": 11}})
+        self.poll(self.sample(pusch_snr=30))
+        self.api.request.assert_called_with("config_set", cells={"1": {"pusch_mcs": 11}})
 
 
 if __name__ == "__main__":

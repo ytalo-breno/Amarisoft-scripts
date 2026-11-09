@@ -1,8 +1,8 @@
-"""AMC fuzzy experimental por célula, usando SNR em dB.
+"""AMC fuzzy experimental de uplink por célula, usando SINR em dB.
 
 O campo selecionado por --snr-field deve ser fornecido pela versão instalada
 ou por um adaptador, com unidade conhecida. Sem métricas válidas, a célula não
-é alterada. O comando afeta todos os seus UEs.
+é alterada. O comando afeta o MCS de uplink de todos os seus UEs.
 
 Os limiares de SNR são heurísticos e devem ser calibrados para a rede. Ao
 encerrar, o MCS forçado persiste; pdsch_mcs=-1 libera o controle nativo.
@@ -77,7 +77,7 @@ def get_max_mcs_for_snr(current_snr, layers=1):
 
 
 class FuzzyController:
-    def __init__(self, api, snr_field="snr", max_mcs=28):
+    def __init__(self, api, snr_field="pusch_snr", max_mcs=28):
         self.api = api
         self.snr_field = snr_field
         self.max_mcs = int(number(max_mcs, 0, 28))
@@ -104,7 +104,7 @@ class FuzzyController:
             try:
                 measured_snr = min(number(s.get(self.snr_field), SNR_MIN, SNR_MAX)
                                    for s in samples)
-                current_mcs = math.floor(min(number(s.get("dl_mcs"), 0, 28)
+                current_mcs = math.floor(min(number(s.get("ul_mcs"), 0, 28)
                                              for s in samples))
                 cap = min(self.max_mcs, get_max_mcs_for_snr(measured_snr))
                 delta = infer_delta(measured_snr)
@@ -122,26 +122,26 @@ class FuzzyController:
             proposed = int(max(0, min(cap, current_mcs + delta)))
             if proposed == current_mcs:
                 continue
-            self.api.request("config_set", cells={str(cell_id): {"pdsch_mcs": proposed}})
+            self.api.request("config_set", cells={str(cell_id): {"pusch_mcs": proposed}})
             self.stable[cell_id] = 0
-            logging.info("Celula %s: SNR %.2f dB, delta %s, MCS %s -> %s",
-                         cell_id, measured_snr, delta, current_mcs, proposed)
+            logging.info("Celula %s: SINR %.2f dB, UL MCS %s -> %s (delta %s)",
+                         cell_id, measured_snr, current_mcs, proposed, delta)
 
 
-def run_fuzzy_xapp(url=WS_URL, snr_field="snr", max_mcs=28):
+def run_fuzzy_xapp(url=WS_URL, snr_field="pusch_snr", max_mcs=28):
     api = None
     try:
         api = RemoteAPI(url)
         controller = FuzzyController(api, snr_field, max_mcs)
-        logging.info("AMC fuzzy por celula iniciado; exige SNR valido em dB.")
+        logging.info("AMC fuzzy de uplink iniciado; exige SINR valido em dB.")
         while True:
             controller.poll()
             time.sleep(0.5)
     finally:
         if api is not None:
             api.close()
-        logging.warning("Confira as celulas alteradas: MCS forcado persiste no gNB. "
-                        "pdsch_mcs=-1 libera a adaptacao nativa.")
+        logging.warning("Confira as celulas alteradas: MCS de uplink forcado persiste no gNB. "
+                "pusch_mcs=-1 libera a adaptacao nativa.")
 
 
 if __name__ == "__main__":
