@@ -1,6 +1,9 @@
+import csv
+import os
+import tempfile
 import unittest
 
-from validate_fuzzy_snr import summarize, validate_rows
+from validate_fuzzy_snr import summarize, validate_file, validate_rows, write_validation
 
 
 class ValidateFuzzySnrTests(unittest.TestCase):
@@ -27,6 +30,22 @@ class ValidateFuzzySnrTests(unittest.TestCase):
 
     def test_summary_is_empty_when_no_valid_rows(self):
         self.assertEqual(summarize([], 2), {"validated": 0, "skipped": 2})
+
+    def test_validates_and_writes_each_file_separately(self):
+        with tempfile.TemporaryDirectory() as directory:
+            input_path = os.path.join(directory, "metrics.csv")
+            output_path = os.path.join(directory, "metrics_validation.csv")
+            with open(input_path, "w", newline="", encoding="utf-8") as stream:
+                writer = csv.DictWriter(stream, fieldnames=["pusch_snr", "ul_mcs"])
+                writer.writeheader()
+                writer.writerow({"pusch_snr": "10", "ul_mcs": "8"})
+
+            rows, summary = validate_file(input_path)
+            write_validation(output_path, rows)
+
+            self.assertEqual(summary["validated"], 1)
+            with open(output_path, newline="", encoding="utf-8") as stream:
+                self.assertEqual(len(list(csv.DictReader(stream))), 1)
 
 
 if __name__ == "__main__":
