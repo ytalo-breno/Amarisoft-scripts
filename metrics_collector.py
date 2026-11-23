@@ -15,7 +15,8 @@ from fuzzy_bler import APIError, RemoteAPI
 CSV_FIELDS = (
     "timestamp_utc", "elapsed_s", "sample_id", "run_label", "ue_index",
     "rnti", "cell_id", "cqi", "dl_mcs", "snr", "pusch_snr", "dl_bler",
-    "dl_tx", "dl_err", "ul_mcs", "raw_metrics",
+    "dl_tx", "dl_err", "dl_retx", "ul_mcs", "ul_tx", "ul_err", "ul_retx",
+    "raw_metrics",
 )
 METRIC_FIELDS = CSV_FIELDS[7:-1]
 

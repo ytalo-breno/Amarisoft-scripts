@@ -1,15 +1,15 @@
-"""Valida offline o controlador fuzzy por BLER usando CSVs coletados."""
+"""Valida offline o controlador fuzzy somente por CQI usando CSVs coletados."""
 import argparse
 import csv
 import math
 import sys
 
-from fuzzy_bler import get_max_mcs_for_cqi, infer_delta
+from fuzzy_bler import get_max_mcs_for_cqi, infer_mcs
 
 
 OUTPUT_FIELDS = (
-    "source_file", "row_number", "cell_id", "rnti", "cqi", "bler",
-    "bler_source", "observed_dl_mcs", "fuzzy_delta", "cqi_mcs_limit",
+    "source_file", "row_number", "cell_id", "rnti", "cqi",
+    "observed_dl_mcs", "cqi_mcs_limit",
     "proposed_mcs", "mcs_error", "within_cqi_limit",
 )
 
@@ -27,47 +27,28 @@ def numeric(row, field, low=None, high=None):
 
 
 def validate_rows(rows, source_file=""):
-    """Reproduz a decisão fuzzy por linha e retorna linhas válidas e contadores."""
+    """Reproduz o alvo por linha (sem agregação de UEs por célula) e retorna linhas válidas e contadores."""
     validated = []
     skipped = 0
-    previous_counters = {}
     for row_number, row in enumerate(rows, start=2):
         cqi = numeric(row, "cqi", 0, 15)
         observed_mcs = numeric(row, "dl_mcs", 0, 28)
-        bler = numeric(row, "dl_bler", 0, 1)
-        bler_source = "dl_bler"
-        key = (row.get("cell_id", ""), row.get("rnti", ""))
-        if bler is None:
-            tx = numeric(row, "dl_tx", 0)
-            errors = numeric(row, "dl_err", 0)
-            previous = previous_counters.get(key)
-            previous_counters[key] = (tx, errors) if tx is not None and errors is not None else None
-            if previous is not None and tx is not None and errors is not None:
-                delta_tx = tx - previous[0]
-                delta_errors = errors - previous[1]
-                if delta_tx > 0 and 0 <= delta_errors <= delta_tx:
-                    bler = delta_errors / delta_tx
-                    bler_source = "dl_err/dl_tx"
-        if cqi is None or observed_mcs is None or bler is None:
+        if cqi is None or observed_mcs is None:
             skipped += 1
             continue
         try:
-            delta = infer_delta(bler, cqi)
+            proposed_mcs = infer_mcs(cqi)
             cqi_limit = get_max_mcs_for_cqi(cqi)
         except ValueError:
             skipped += 1
             continue
-        proposed_mcs = max(0, min(28, int(round(observed_mcs + delta)), cqi_limit))
         validated.append({
             "source_file": source_file,
             "row_number": row_number,
             "cell_id": row.get("cell_id", ""),
             "rnti": row.get("rnti", ""),
             "cqi": f"{cqi:.6g}",
-            "bler": f"{bler:.6g}",
-            "bler_source": bler_source,
             "observed_dl_mcs": f"{observed_mcs:.6g}",
-            "fuzzy_delta": delta,
             "cqi_mcs_limit": cqi_limit,
             "proposed_mcs": proposed_mcs,
             "mcs_error": f"{proposed_mcs - observed_mcs:.6g}",
