@@ -41,13 +41,16 @@ python fuzzy_snr.py --url ws://172.16.2.226:9001 --snr-field pusch_snr --max-mcs
 
 O controlador consulta `ue_get` com estatísticas e espera 0,5 segundo entre ciclos. Para cada célula, utiliza o menor `pusch_snr` e o menor `ul_mcs` reportados entre seus UEs. O campo selecionado deve existir dentro das métricas de cada célula e conter um valor em dB no intervalo de -20 a 40.
 
-- SNR baixo reduz o MCS; SNR alto pode aumentá-lo.
-- Aumentos exigem três amostras consecutivas com SNR acima de 15 dB.
-- Abaixo de 5 dB, o ajuste força uma redução de pelo menos um índice, respeitando o limite inferior.
-- O MCS de uplink fica entre 0 e `--max-mcs` e também respeita o teto da tabela de limiares presente no código.
+- O alvo de MCS é calculado pela tabela de limiares com uma margem de 1 dB subtraída do SNR, configurável por `--snr-margin-db`.
+- As regras fuzzy usam a diferença entre alvo e MCS atual: reduzem acima do alvo, aumentam abaixo e mantêm dentro de ±1 índice. SNR constante não provoca reduções indefinidas.
+- Aumentos e reduções exigem três leituras consecutivas solicitando a mesma direção. Uma leitura inválida, manutenção ou reversão reinicia a confirmação.
+- Cada ajuste muda no máximo dois índices em direção ao alvo; o MCS fica entre 0 e `--max-mcs`. A tabela define o alvo, sem provocar saltos diretos em uma queda isolada.
+- Com SNR de 10 dB e margem padrão, o alvo é 10: MCS 10 é mantido, enquanto MCS 0 pode se recuperar mesmo sem ultrapassar 15 dB.
 - Métricas ausentes ou inválidas impedem o ajuste da célula naquele ciclo.
 
-O padrão da linha de comando e da classe `FuzzyController` é `pusch_snr`. Confirme o significado e a unidade do campo disponível na sua instalação: `pusch_snr` é uma medida de uplink usada aqui para orientar o MCS de uplink. Os limiares são experimentais e precisam de calibração. O laço de controle usa o teto calculado para uma camada.
+O padrão da linha de comando e da classe `FuzzyController` é `pusch_snr`. Confirme o significado e a unidade do campo disponível na sua instalação: `pusch_snr` é uma medida de uplink usada aqui para orientar o MCS de uplink. Os limiares são experimentais e precisam de calibração. O laço de controle calcula o alvo para uma camada.
+
+A confirmação é feita por consultas, não por janelas estatísticas identificadas pela API. O uso do menor SNR e menor MCS entre UEs continua conservador e o comando afeta toda a célula.
 
 ## Controle fuzzy por BLER e CQI
 
@@ -121,12 +124,14 @@ python plot_metrics.py native.csv fuzzy_snr.csv --output-dir graphs --metrics cq
 
 Use os CSVs coletados para reproduzir a decisão do fuzzy sem enviar comandos ao
 Amarisoft. O validador prioriza `pusch_snr` e usa `snr` como fallback. Para cada
-linha válida, calcula o delta fuzzy, o limite máximo de MCS da tabela SINR e o
-MCS de uplink proposto a partir do `ul_mcs` observado na coleta:
+linha válida, calcula o delta fuzzy, o alvo com margem, o limite da tabela SINR e o
+MCS de uplink proposto a partir do `ul_mcs` observado na coleta.
+
+Essa avaliação calcula o passo candidato por linha, sem reproduzir as três confirmações temporais do controlador ou realimentar o MCS proposto na linha seguinte.
 
 ```sh
 python validate_fuzzy_snr.py amarisoft_metrics.csv amarisoft_metrics1.csv \
-	amarisoft_metrics2.csv --output fuzzy_snr_validation.csv
+	amarisoft_metrics2.csv --output-dir validation_snr
 ```
 
 O resumo mostra o erro médio absoluto entre o MCS de uplink proposto e o observado e a
