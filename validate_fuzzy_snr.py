@@ -5,12 +5,12 @@ import math
 import os
 import sys
 
-from fuzzy_snr import get_max_mcs_for_snr, infer_delta
+from fuzzy_snr import get_max_mcs_for_snr, get_target_mcs, infer_delta
 
 
 OUTPUT_FIELDS = (
     "source_file", "row_number", "cell_id", "rnti", "sinr", "observed_ul_mcs",
-    "fuzzy_delta", "sinr_mcs_limit", "proposed_mcs", "mcs_error",
+    "fuzzy_delta", "sinr_mcs_limit", "target_mcs", "proposed_mcs", "mcs_error",
     "within_sinr_limit",
 )
 
@@ -24,7 +24,10 @@ def numeric(row, field):
 
 
 def validate_rows(rows, source_file=""):
-    """Reproduz uma decisão por linha e retorna linhas válidas e contadores."""
+    """Avalia o passo candidato por linha, sem simular confirmações temporais.
+
+Não é uma simulação em malha fechada: cada decisão usa o MCS observado.
+"""
     validated = []
     skipped = 0
     for row_number, row in enumerate(rows, start=2):
@@ -36,12 +39,13 @@ def validate_rows(rows, source_file=""):
             skipped += 1
             continue
         try:
-            delta = infer_delta(sinr)
+            delta = infer_delta(sinr, observed_mcs)
             sinr_limit = get_max_mcs_for_snr(sinr)
+            target = get_target_mcs(sinr)
         except ValueError:
             skipped += 1
             continue
-        proposed_mcs = max(0, min(28, int(round(observed_mcs + delta)), sinr_limit))
+        proposed_mcs = max(0, min(28, math.floor(observed_mcs) + delta))
         validated.append({
             "source_file": source_file,
             "row_number": row_number,
@@ -51,6 +55,7 @@ def validate_rows(rows, source_file=""):
             "observed_ul_mcs": f"{observed_mcs:.6g}",
             "fuzzy_delta": delta,
             "sinr_mcs_limit": sinr_limit,
+            "target_mcs": target,
             "proposed_mcs": proposed_mcs,
             "mcs_error": f"{proposed_mcs - observed_mcs:.6g}",
             "within_sinr_limit": str(observed_mcs <= sinr_limit).lower(),

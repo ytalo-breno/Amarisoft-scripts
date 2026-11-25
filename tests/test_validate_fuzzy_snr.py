@@ -16,6 +16,8 @@ class ValidateFuzzySnrTests(unittest.TestCase):
         self.assertEqual(skipped, 0)
         self.assertEqual(rows[0]["sinr_mcs_limit"], 28)
         self.assertEqual(rows[0]["fuzzy_delta"], 1)
+        self.assertEqual(rows[0]["target_mcs"], 27)
+        self.assertEqual(rows[1]["proposed_mcs"], 9)
         self.assertEqual(rows[1]["within_sinr_limit"], "false")
         self.assertEqual(rows[0]["source_file"], "sample.csv")
 
